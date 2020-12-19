@@ -4,7 +4,7 @@ usage() {
       echo ""
       echo "Usage : sh $0 {-g <reference_genome> | -u <custom_reference> | -i <Index_folder>} {-A <reference_annotation> | -R <custom reference annotation>} \
             -l lib_type {-1 <left_reads> -2 <right_reads> | -U <single_reads> | -s <sra_id>} -O <output_folder for Bam files> -p num_threads -5 <integer> \
-            -3 <integer> [-q phred_33 -Q phred_64 -m min_intron -M max_intron -t transcriptome_stringtie -c cufflinks]"
+            -3 <integer> [-q phred_33 -Q phred_64 -m min_intron -M max_intron -t transcriptome_stringtie -c cufflinks] -f <integer>"
       echo ""
 
 cat <<'EOF'
@@ -48,6 +48,8 @@ cat <<'EOF'
   -t StringTie (Report alignments tailored for transcript assemblers including StringTie)
 
   -c Cufflinks (Report alignments tailored specifically for Cufflinks)
+  
+  -f threshold
 
 EOF
     exit 0
@@ -58,7 +60,7 @@ quality_64=0
 tra_as=0
 tra_cuff=0
 
-while getopts ":hg:u:i:A:R:l:1:2:U:O:s:p:5:3:qQtcm:M:" opt; do
+while getopts ":hg:u:i:A:R:l:1:2:U:O:s:p:5:3:f:qQtcm:M:" opt; do
   case $opt in
     g)
     referencegenome=$OPTARG
@@ -120,6 +122,9 @@ while getopts ":hg:u:i:A:R:l:1:2:U:O:s:p:5:3:qQtcm:M:" opt; do
     c)
     tra_cuff=$OPTARG # Report alignments tailored specifically for Cufflinks
      ;;
+     f)
+    threshold=("$OPTARG") # Coverage/base filter that you would like to apply to identified transcripts
+     ;;
     h)
     usage
      exit 1
@@ -138,33 +143,186 @@ done
 # ############################################################################################################################################################################################################################
 ## Functions ###
 # ############################################################################################################################################################################################################################
+#Define parameters for coverage/base filtering
+param5=5
+param4=4
+param3=3
+param2=2
+param1=1
+param0=0
 
+###
 stringtie_non_SRA() 
 {
     samtools sort -O BAM -T temp_files $filename.sam -o "$bam_out"/$filename.sorted.bam
     rm $filename.sam
     if [ ! -z "$user_referenceannotation" ] && [ -z "$referenceannotation" ]; then
         stringtie -G $user_referenceannotation "$bam_out"/$filename.sorted.bam -o "$bam_out"/$filename.gtf -p $num_threads
-        cuffcompare "$bam_out"/$filename.gtf -r $user_referenceannotation -o $filename
+        if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$filename.gtf "$bam_out"/$filename.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+        cuffcompare "$bam_out"/$filename.gtf.filtered.gtf -r $user_referenceannotation -o $filename
         mv $filename* "$bam_out" 
+###
     elif [ -z "$user_referenceannotation" ] && [ ! -z "$referenceannotation" ]; then
         stringtie -G $referenceannotation "$bam_out"/$filename.sorted.bam -o "$bam_out"/$filename.gtf -p $num_threads
-        cuffcompare "$bam_out"/$filename.gtf -r $referenceannotation -o $filename
+        if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$filename.gtf "$bam_out"/$filename.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"        
+        cuffcompare "$bam_out"/$filename.gtf.filtered.gtf -r $referenceannotation -o $filename
         mv $filename* "$bam_out"
     fi
 }
-
+###
 stringtie_SRA_multi()
 {
     samtools sort -O BAM -T temp_files $f.sam -o "$bam_out"/$f.sorted.bam --threads $num_threads
     rm $f.sam
     if [ ! -z "$user_referenceannotation" ] && [ -z "$referenceannotation" ]; then
       stringtie -G $user_referenceannotation "$bam_out"/$f.sorted.bam -o "$bam_out"/$f.gtf -p $num_threads
-      cuffcompare "$bam_out"/$f.gtf -r $user_referenceannotation -o $f
+        if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$f.gtf "$bam_out"/$f.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+      cuffcompare "$bam_out"/$f.gtf.filtered.gtf -r $user_referenceannotation -o $f
       mv $f* "$bam_out" 
     elif [ -z "$user_referenceannotation" ] && [ ! -z "$referenceannotation" ]; then
       stringtie -G $referenceannotation "$bam_out"/$f.sorted.bam -o "$bam_out"/$f.gtf -p $num_threads
-      cuffcompare "$bam_out"/$f.gtf -r $referenceannotation -o $f
+        if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$f.gtf "$bam_out"/$f.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+      cuffcompare "$bam_out"/$f.gtf.filtered.gtf -r $referenceannotation -o $f
       mv $f* "$bam_out"
     fi
 }
@@ -175,11 +333,83 @@ stringtie_SRA_single()
     rm $sra_id.sam
     if [ ! -z "$user_referenceannotation" ] && [ -z "$referenceannotation" ]; then
       stringtie -G $user_referenceannotation "$bam_out"/$sra_id.sorted.bam -o "$bam_out"/$sra_id.gtf -p $num_threads
-      cuffcompare "$bam_out"/$sra_id.gtf -r $user_referenceannotation -o $sra_id
+              if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$sra_id.gtf "$bam_out"/$sra_id.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+      cuffcompare "$bam_out"/$sra_id.gtf.filtered.gtf -r $user_referenceannotation -o $sra_id
       mv $sra_id* "$bam_out" 
     elif [ -z "$user_referenceannotation" ] && [ ! -z "$referenceannotation" ]; then
       stringtie -G $referenceannotation "$bam_out"/$sra_id.sorted.bam -o "$bam_out"/$sra_id.gtf -p $num_threads
-      cuffcompare "$bam_out"/$sra_id.gtf -r $referenceannotation -o $sra_id
+              if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$sra_id.gtf "$bam_out"/$sra_id.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+      cuffcompare "$bam_out"/$sra_id.gtf.filtered.gtf -r $referenceannotation -o $sra_id
       mv $sra_id* "$bam_out"
     fi
 }
@@ -194,12 +424,84 @@ cufflinks_non_SRA()
         mv "$bam_out"/genes.fpkm_tracking "$bam_out"/$filename.genes.fpkm_tracking
         mv "$bam_out"/skipped.gtf "$bam_out"/$filename.skipped.gtf
         mv "$bam_out"/transcripts.gtf "$bam_out"/$filename.gtf
-        cuffcompare "$bam_out"/$filename.gtf -r $user_referenceannotation -o $filename
+                if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$filename.gtf "$bam_out"/$filename.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+        cuffcompare "$bam_out"/$filename.gtf.filtered.gtf -r $user_referenceannotation -o $filename
         mv $filename* "$bam_out" 
     elif [ -z "$user_referenceannotation" ] && [ ! -z "$referenceannotation" ]; then
         cufflinks "$bam_out"/$filename.sorted.bam -p $num_threads -g $referenceannotation -o "$bam_out"
         mv "$bam_out"/transcripts.gtf "$bam_out"/$filename.gtf
-        cuffcompare "$bam_out"/$filename.gtf -r $user_referenceannotation -o $filename
+                if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$filename.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$filename.gtf >"$bam_out"/$filename.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$filename.gtf "$bam_out"/$filename.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"
+        cuffcompare "$bam_out"/$filename.gtf.filtered.gtf -r $user_referenceannotation -o $filename
         mv $filename* "$bam_out" 
     fi  
 }
@@ -214,12 +516,84 @@ cufflinks_SRA_multi()
         mv "$bam_out"/genes.fpkm_tracking "$bam_out"/$f.genes.fpkm_tracking
         mv "$bam_out"/skipped.gtf "$bam_out"/$f.skipped.gtf
       mv "$bam_out"/transcripts.gtf "$bam_out"/$f.gtf
-      cuffcompare "$bam_out"/$f.gtf -r $user_referenceannotation -o $f
+        if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$f.gtf "$bam_out"/$f.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"      
+      cuffcompare "$bam_out"/$f.gtf.filtered.gtf -r $user_referenceannotation -o $f
       mv $f* "$bam_out" 
     elif [ -z "$user_referenceannotation" ] && [ ! -z "$referenceannotation" ]; then
       cufflinks "$bam_out"/$f.sorted.bam -p $num_threads -g $referenceannotation -o "$bam_out"
       mv "$bam_out"/transcripts.gtf "$bam_out"/$f.gtf
-      cuffcompare "$bam_out"/$f.gtf -r $user_referenceannotation -o $f
+        if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$f.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$f.gtf >"$bam_out"/$f.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$f.gtf "$bam_out"/$f.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"         
+      cuffcompare "$bam_out"/$f.gtf.filtered.gtf -r $user_referenceannotation -o $f
       mv $f* "$bam_out"
     fi
 }
@@ -234,12 +608,84 @@ cufflinks_SRA_single()
       mv "$bam_out"/genes.fpkm_tracking "$bam_out"/$sra_id.genes.fpkm_tracking
       mv "$bam_out"/skipped.gtf "$bam_out"/$sra_id.skipped.gtf
       mv "$bam_out"/transcripts.gtf "$bam_out"/$sra_id.gtf
-      cuffcompare "$bam_out"/$sra_id.gtf -r $user_referenceannotation -o $sra_id
+              if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$sra_id.gtf "$bam_out"/$sra_id.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"      
+      cuffcompare "$bam_out"/$sra_id.gtf.filtered.gtf -r $user_referenceannotation -o $sra_id
       mv $sra_id* "$bam_out" 
     elif [ -z "$user_referenceannotation" ] && [ ! -z "$referenceannotation" ]; then
       cufflinks "$bam_out"/$sra_id.sorted.bam -p $num_threads -g $referenceannotation -o "$bam_out"
       mv "$bam_out"/transcripts.gtf "$bam_out"/$sra_id.gtf
-      cuffcompare "$bam_out"/$sra_id.gtf -r $user_referenceannotation -o $sra_id
+              if [ "$threshold" -eq "$param5" ]; then
+           grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "4.' -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+           grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+           rm listtoremove.txt
+        else
+           if [ "$threshold" -eq "$param4" ]; then
+              grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "3.' -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+              grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+              rm listtoremove.txt
+           else
+              if [ "$threshold" -eq "$param3" ]; then
+                 grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "2.' -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                 grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                 rm listtoremove.txt
+              else
+                 if [ "$threshold" -eq "$param2" ]; then
+                    grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "1.' -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                    grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                    rm listtoremove.txt
+                 else
+                    if [ "$threshold" -eq "$param1" ]; then
+                       grep "	transcript" "$bam_out"/$sra_id.gtf | grep -e 'cov "0.' | cut -f 9 | cut -d " " -f 4 | sort -u >listtoremove.txt
+                       grep -vFf listtoremove.txt "$bam_out"/$sra_id.gtf >"$bam_out"/$sra_id.gtf.filtered.gtf
+                       rm listtoremove.txt
+                    else
+			     if [ "$threshold" -eq "$param0" ]; then
+                          mv "$bam_out"/$sra_id.gtf "$bam_out"/$sra_id.gtf.filtered.gtf
+                       else
+                          echo "Invalid coverage parameter. Please select a whole number between 0-5"
+			     fi
+                    fi
+                 fi
+	        fi
+            fi
+          fi
+          echo "Finished filtering"         
+      cuffcompare "$bam_out"/$sra_id.gtf.filtered.gtf -r $user_referenceannotation -o $sra_id
       mv $sra_id* "$bam_out" 
     fi
 }
